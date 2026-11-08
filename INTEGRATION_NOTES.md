@@ -117,3 +117,18 @@ generel's cache was not ported.
 | InnerQ | `23a72ba2b`, opt-in, perplexity within noise on Sage |
 
 Perplexity, 12 chunks of 512 on the same text: turbo3/turbo4 5.4989, turbo5/turbo6 5.4966, turbo6/turbo6 5.4995, turbo3/turbo4 with `TURBO_INNERQ=2048` 5.5224 (all +/- 0.24).
+
+## Generation speed, speedtest.ps1
+
+Server command from above with `-ub 1024 -ctk turbo3 -ctv turbo4 -cmoe --moe-cache-mib 4000 --temp 0.7`. Decode tok/s, one run each.
+
+| Flags | Coding | Chat | Coding + Chat | Prefill 2048 |
+|---|---|---|---|---|
+| none | 63.1 | 61.4 | 62.2 | ~840 |
+| `--spec-type draft-mtp` (52-54% accepted) | 50.7 | 54.8 | 53.1 | 633 |
+| `--moe-cache-prefetch` | 66.8 | 65.1 | 66.3 | 831 |
+| `--moe-cache-prefetch --moe-cache-skip 2` | 69.6 | 69.0 | 69.8 | 801 |
+| `--moe-cache-prefetch --moe-cache-skip 4` | 72.6 | 73.1 | 70.3 | 825 |
+| `--moe-cache-prefetch --moe-cache-skip 6` | 76.3 | 78.2 | 77.6 | 823 |
+
+`--moe-cache-skip N` (`cff2feb2c`): while generating, an expert of the lowest N router ranks of a token that misses the cache reads a zero slot and adds nothing. Perplexity with `-ub 4` so that the skip applies, 8 chunks of 512: skip 0 5.9767, skip 2 5.9692, skip 4 6.0393, skip 6 6.1522 (all +/- 0.33).
