@@ -2782,6 +2782,16 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_PREFETCH"));
     add_opt(common_arg(
+        {"--moe-cache-skip"}, "N",
+        string_format("while generating, skip the experts of the lowest N router ranks of a token when they miss the MoE cache, changes the output (default: %d)", params.moe_cache_skip),
+        [](common_params & params, int value) {
+            if (value < 0) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.moe_cache_skip = value;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_SKIP"));
+    add_opt(common_arg(
         {"-ncffn", "--n-cpu-ffn"}, "N",
         "keep the dense FFN weights of the first N layers in the CPU\n"
         "(dense models; for MoE expert weights use --n-cpu-moe)",
