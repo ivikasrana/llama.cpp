@@ -1607,7 +1607,7 @@ void set_rows_cuda<half, int32_t, false>(
 
 
     if (dst->type == GGML_TYPE_F16) {
-        set_rows_cuda<half, int64_t, half, false>(
+        set_rows_cuda<half, int32_t, half, false>(
             src0_d, src1_d, (half*)dst->data,
             ne00, ne01, ne02, ne03,
             ne10, ne11, ne12, ne13,
@@ -1634,7 +1634,7 @@ void set_rows_cuda<half, int64_t, false>(
     cudaStream_t stream = ctx.stream();
 
     if (dst->type == GGML_TYPE_F16) {
-        set_rows_cuda<half, int32_t, half, false>(
+        set_rows_cuda<half, int64_t, half, false>(
             src0_d, src1_d, (half*)dst->data,
             ne00, ne01, ne02, ne03,
             ne10, ne11, ne12, ne13,

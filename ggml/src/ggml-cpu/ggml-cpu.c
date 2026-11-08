@@ -3743,6 +3743,8 @@ static void ggml_vec_dot_turbo5_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
     GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
 
     ggml_vec_dot_turbo_f32_impl(GGML_TYPE_TURBO5_0, n, s, vx, vy);
+}
+
 static void ggml_vec_dot_tq3_1s_q8_0(int n, float * GGML_RESTRICT s, size_t bs,
                                        const void * GGML_RESTRICT vx, size_t bx,
                                        const void * GGML_RESTRICT vy, size_t by, int nrc) {
