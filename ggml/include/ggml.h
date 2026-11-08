@@ -433,7 +433,14 @@ extern "C" {
         GGML_TYPE_Q1_0    = 41,
         GGML_TYPE_Q2_0    = 42,
         GGML_TYPE_F8_E4M3 = 43,
-        GGML_TYPE_COUNT   = 44,
+        GGML_TYPE_TURBO3_0 = 44,
+        GGML_TYPE_TQ3_1S  = 45,
+        GGML_TYPE_TQ4_1S  = 46,
+        GGML_TYPE_TURBO4_0 = 47,
+        GGML_TYPE_TURBO2_0 = 48,
+        GGML_TYPE_TURBO5_0 = 51,
+        GGML_TYPE_TURBO6_0 = 52,
+        GGML_TYPE_COUNT   = 53,
     };
 
     // [TAG_GGML_PREC]
@@ -605,6 +612,8 @@ extern "C" {
         GGML_OP_OPT_STEP_SGD,
 
         GGML_OP_GLU,
+
+        GGML_OP_TURBO_WHT,
 
         GGML_OP_COUNT,
     };
@@ -2701,6 +2710,13 @@ extern "C" {
             struct ggml_tensor  * beta,
             struct ggml_tensor  * state,
             int64_t               K);
+
+    GGML_API struct ggml_tensor * ggml_turbo_wht(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            int                   direction,
+            int                   group_size,
+            struct ggml_tensor  * scale);
 
     // DSA lightning indexer
     //

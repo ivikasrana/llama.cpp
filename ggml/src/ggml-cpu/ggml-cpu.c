@@ -7,6 +7,7 @@
 #include "ggml-cpu-impl.h"
 #include "ggml-impl.h"
 #include "quants.h"
+#include "ggml-quants.h"
 #include "ggml-threading.h"
 #include "unary-ops.h"
 #include "binary-ops.h"
@@ -215,6 +216,28 @@ typedef pthread_t ggml_thread_t;
 #include <TargetConditionals.h>
 #endif
 
+static void ggml_vec_dot_turbo3_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc);
+static void ggml_vec_dot_turbo2_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc);
+static void ggml_vec_dot_turbo4_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc);
+static void ggml_vec_dot_turbo6_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc);
+static void ggml_vec_dot_turbo5_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc);
+static void ggml_vec_dot_tq3_1s_q8_0(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc);
+static void ggml_vec_dot_tq4_1s_q8_0(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc);
+
 static const struct ggml_type_traits_cpu type_traits_cpu[GGML_TYPE_COUNT] = {
     [GGML_TYPE_F32] = {
         .from_float               = (ggml_from_float_t) ggml_cpu_fp32_to_fp32,
@@ -421,6 +444,48 @@ static const struct ggml_type_traits_cpu type_traits_cpu[GGML_TYPE_COUNT] = {
     },
     [GGML_TYPE_I32] = {
         .from_float               = (ggml_from_float_t) ggml_cpu_fp32_to_i32,
+    },
+    [GGML_TYPE_TURBO3_0] = {
+        .from_float               = (ggml_from_float_t) quantize_row_turbo3_0_ref,
+        .vec_dot                  = (ggml_vec_dot_t) ggml_vec_dot_turbo3_0_f32,
+        .vec_dot_type             = GGML_TYPE_F32,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_TURBO2_0] = {
+        .from_float               = (ggml_from_float_t) quantize_row_turbo2_0_ref,
+        .vec_dot                  = (ggml_vec_dot_t) ggml_vec_dot_turbo2_0_f32,
+        .vec_dot_type             = GGML_TYPE_F32,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_TURBO4_0] = {
+        .from_float               = (ggml_from_float_t) quantize_row_turbo4_0_ref,
+        .vec_dot                  = (ggml_vec_dot_t) ggml_vec_dot_turbo4_0_f32,
+        .vec_dot_type             = GGML_TYPE_F32,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_TURBO6_0] = {
+        .from_float               = (ggml_from_float_t) quantize_row_turbo6_0_ref,
+        .vec_dot                  = (ggml_vec_dot_t) ggml_vec_dot_turbo6_0_f32,
+        .vec_dot_type             = GGML_TYPE_F32,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_TURBO5_0] = {
+        .from_float               = (ggml_from_float_t) quantize_row_turbo5_0_ref,
+        .vec_dot                  = (ggml_vec_dot_t) ggml_vec_dot_turbo5_0_f32,
+        .vec_dot_type             = GGML_TYPE_F32,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_TQ3_1S] = {
+        .from_float               = (ggml_from_float_t) quantize_row_tq3_1s_ref,
+        .vec_dot                  = (ggml_vec_dot_t) ggml_vec_dot_tq3_1s_q8_0,
+        .vec_dot_type             = GGML_TYPE_Q8_0,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_TQ4_1S] = {
+        .from_float               = (ggml_from_float_t) quantize_row_tq4_1s_ref,
+        .vec_dot                  = (ggml_vec_dot_t) ggml_vec_dot_tq4_1s_q8_0,
+        .vec_dot_type             = GGML_TYPE_Q8_0,
+        .nrows                    = 1,
     },
 };
 
@@ -2103,6 +2168,10 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             {
                 ggml_compute_forward_gated_delta_net(params, tensor);
             } break;
+        case GGML_OP_TURBO_WHT:
+            {
+                ggml_compute_forward_turbo_wht(params, tensor);
+            } break;
         case GGML_OP_LIGHTNING_INDEXER:
             {
                 ggml_compute_forward_lightning_indexer(params, tensor);
@@ -2303,6 +2372,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_COUNT_EQUAL:
         case GGML_OP_SOLVE_TRI:
         case GGML_OP_GATED_DELTA_NET:
+        case GGML_OP_TURBO_WHT:
         case GGML_OP_DSV4_HC_COMB:
         case GGML_OP_DSV4_HC_PRE:
         case GGML_OP_DSV4_HC_POST:
@@ -3490,6 +3560,205 @@ enum ggml_status ggml_graph_compute_with_ctx(struct ggml_context * ctx, struct g
     cplan.work_data = (uint8_t *)ggml_new_buffer(ctx, cplan.work_size);
 
     return ggml_graph_compute(cgraph, &cplan);
+}
+
+#define GGML_TQ_DOT_CHUNK 256
+
+#if defined(__AVX512F__)
+static const float turbo_cpu_c3[16] = {
+    -0.190207f, -0.118786f, -0.066822f, -0.021663f, 0.021663f, 0.066822f, 0.118786f, 0.190207f,
+};
+static const float turbo_cpu_c4[16] = {
+    -0.241529f, -0.182877f, -0.143016f, -0.111036f, -0.083292f, -0.058050f, -0.034299f, -0.011349f,
+     0.011349f,  0.034299f,  0.058050f,  0.083292f,  0.111036f,  0.143016f,  0.182877f,  0.241529f,
+};
+static inline __m512i turbo_cpu_nib16(const uint8_t * p) {
+    const __m128i b = _mm_loadl_epi64((const __m128i *) p);
+    const __m512i w = _mm512_cvtepu8_epi32(_mm_unpacklo_epi8(b, b));
+    return _mm512_and_si512(_mm512_srlv_epi32(w, _mm512_set_epi32(4,0,4,0,4,0,4,0,4,0,4,0,4,0,4,0)),
+                            _mm512_set1_epi32(0xF));
+}
+
+static inline __m512i turbo_cpu_crumb16(const uint8_t * p) {
+    int32_t v;
+    memcpy(&v, p, sizeof(v));
+    const __m128i b = _mm_shuffle_epi8(_mm_cvtsi32_si128(v), _mm_set_epi8(3,3,3,3,2,2,2,2,1,1,1,1,0,0,0,0));
+    const __m512i w = _mm512_cvtepu8_epi32(b);
+    return _mm512_and_si512(_mm512_srlv_epi32(w, _mm512_set_epi32(6,4,2,0,6,4,2,0,6,4,2,0,6,4,2,0)),
+                            _mm512_set1_epi32(0x3));
+}
+
+static inline __mmask16 turbo_cpu_bits16(const uint8_t * p) {
+    uint16_t m;
+    memcpy(&m, p, sizeof(m));
+    return (__mmask16) m;
+}
+
+static void turbo3_to_f32_avx512(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k) {
+    const block_turbo3_0 * x = (const block_turbo3_0 *) vx;
+    const __m512 c = _mm512_loadu_ps(turbo_cpu_c3);
+    for (int64_t ib = 0; ib < k / QK_TURBO3; ib++, y += QK_TURBO3) {
+        const __m512 t = _mm512_mul_ps(c, _mm512_set1_ps(GGML_CPU_FP16_TO_FP32(x[ib].norm)));
+        for (int j = 0; j < QK_TURBO3 / 16; j++) {
+            const __m512i lo  = turbo_cpu_crumb16(x[ib].qs + 4*j);
+            const __m512i idx = _mm512_mask_add_epi32(lo, turbo_cpu_bits16(x[ib].signs + 2*j), lo, _mm512_set1_epi32(4));
+            _mm512_storeu_ps(y + 16*j, _mm512_permutexvar_ps(idx, t));
+        }
+    }
+}
+
+#if TURBO4_USE_4BIT
+static void turbo4_to_f32_avx512(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k) {
+    const block_turbo4_0 * x = (const block_turbo4_0 *) vx;
+    const __m512 c = _mm512_loadu_ps(turbo_cpu_c4);
+    for (int64_t ib = 0; ib < k / QK_TURBO4; ib++, y += QK_TURBO4) {
+        const __m512 t = _mm512_mul_ps(c, _mm512_set1_ps(GGML_CPU_FP16_TO_FP32(x[ib].norm)));
+        for (int j = 0; j < QK_TURBO4 / 16; j++) {
+            _mm512_storeu_ps(y + 16*j, _mm512_permutexvar_ps(turbo_cpu_nib16(x[ib].qs + 8*j), t));
+        }
+    }
+}
+#endif
+
+#endif
+
+static ggml_to_float_t ggml_cpu_get_to_float(enum ggml_type type) {
+#if defined(__AVX512F__)
+    switch (type) {
+        case GGML_TYPE_TURBO3_0: return turbo3_to_f32_avx512;
+#if TURBO4_USE_4BIT
+        case GGML_TYPE_TURBO4_0: return turbo4_to_f32_avx512;
+#endif
+        default: break;
+    }
+#endif
+    return ggml_get_type_traits(type)->to_float;
+}
+
+static void ggml_vec_dot_turbo_f32_impl(enum ggml_type type_x, int n, float * GGML_RESTRICT s,
+                                        const void * GGML_RESTRICT vx, const void * GGML_RESTRICT vy) {
+    const struct ggml_type_traits * trx = ggml_get_type_traits(type_x);
+    ggml_to_float_t const to_float = ggml_cpu_get_to_float(type_x);
+
+    const int64_t blk = trx->blck_size;
+    GGML_ASSERT(n % blk == 0);
+    GGML_ASSERT(blk <= GGML_TQ_DOT_CHUNK);
+
+    const int64_t chunk = (GGML_TQ_DOT_CHUNK / blk) * blk;
+
+    const char  * px = (const char  *) vx;
+    const float * y  = (const float *) vy;
+
+    float xb[GGML_TQ_DOT_CHUNK];
+    float sum = 0.0f;
+
+    for (int64_t i = 0; i < n; i += chunk) {
+        const int64_t nc = MIN(chunk, n - i);
+        to_float(px, xb, nc);
+        float part;
+        ggml_vec_dot_f32((int) nc, &part, 0, xb, 0, y + i, 0, 1);
+        sum += part;
+        px += (nc / blk) * trx->type_size;
+    }
+
+    *s = sum;
+}
+
+static void ggml_vec_dot_tq_q8_0_impl(enum ggml_type type_x, int n, float * GGML_RESTRICT s,
+                                      const void * GGML_RESTRICT vx, const void * GGML_RESTRICT vy) {
+    const struct ggml_type_traits * trx = ggml_get_type_traits(type_x);
+    const struct ggml_type_traits * trq = ggml_get_type_traits(GGML_TYPE_Q8_0);
+
+    const int64_t blk_x = trx->blck_size;
+    const int64_t blk_y = trq->blck_size;
+
+    const int64_t blk = MAX(blk_x, blk_y);
+    GGML_ASSERT(blk % blk_x == 0 && blk % blk_y == 0);
+    GGML_ASSERT(n % blk == 0);
+    GGML_ASSERT(blk <= GGML_TQ_DOT_CHUNK);
+
+    const int64_t chunk = (GGML_TQ_DOT_CHUNK / blk) * blk;
+
+    const char * px = (const char *) vx;
+    const char * py = (const char *) vy;
+
+    float xb[GGML_TQ_DOT_CHUNK];
+    float yb[GGML_TQ_DOT_CHUNK];
+    float sum = 0.0f;
+
+    for (int64_t i = 0; i < n; i += chunk) {
+        const int64_t nc = MIN(chunk, n - i);
+        trx->to_float(px, xb, nc);
+        trq->to_float(py, yb, nc);
+        for (int64_t j = 0; j < nc; j++) {
+            sum += xb[j] * yb[j];
+        }
+        px += (nc / blk_x) * trx->type_size;
+        py += (nc / blk_y) * trq->type_size;
+    }
+
+    *s = sum;
+}
+
+static void ggml_vec_dot_turbo3_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    GGML_ASSERT(nrc == 1);
+    GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
+
+    ggml_vec_dot_turbo_f32_impl(GGML_TYPE_TURBO3_0, n, s, vx, vy);
+}
+
+static void ggml_vec_dot_turbo2_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    GGML_ASSERT(nrc == 1);
+    GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
+
+    ggml_vec_dot_turbo_f32_impl(GGML_TYPE_TURBO2_0, n, s, vx, vy);
+}
+
+static void ggml_vec_dot_turbo4_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    GGML_ASSERT(nrc == 1);
+    GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
+
+    ggml_vec_dot_turbo_f32_impl(GGML_TYPE_TURBO4_0, n, s, vx, vy);
+}
+
+static void ggml_vec_dot_turbo6_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    GGML_ASSERT(nrc == 1);
+    GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
+
+    ggml_vec_dot_turbo_f32_impl(GGML_TYPE_TURBO6_0, n, s, vx, vy);
+}
+
+static void ggml_vec_dot_turbo5_0_f32(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    GGML_ASSERT(nrc == 1);
+    GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
+
+    ggml_vec_dot_turbo_f32_impl(GGML_TYPE_TURBO5_0, n, s, vx, vy);
+static void ggml_vec_dot_tq3_1s_q8_0(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    GGML_ASSERT(nrc == 1);
+    GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
+
+    ggml_vec_dot_tq_q8_0_impl(GGML_TYPE_TQ3_1S, n, s, vx, vy);
+}
+
+static void ggml_vec_dot_tq4_1s_q8_0(int n, float * GGML_RESTRICT s, size_t bs,
+                                       const void * GGML_RESTRICT vx, size_t bx,
+                                       const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    GGML_ASSERT(nrc == 1);
+    GGML_UNUSED(bs); GGML_UNUSED(bx); GGML_UNUSED(by); GGML_UNUSED(nrc);
+
+    ggml_vec_dot_tq_q8_0_impl(GGML_TYPE_TQ4_1S, n, s, vx, vy);
 }
 
 void ggml_cpu_fp32_to_fp32(const float * x, float * y, int64_t n) {
