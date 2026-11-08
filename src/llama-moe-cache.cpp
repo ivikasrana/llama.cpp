@@ -309,6 +309,66 @@ static bool llama_moe_cache_same_layout(const std::vector<ggml_tensor *> & a, co
     return true;
 }
 
+struct moe_cache_share_tuner {
+    static constexpr int     n_levels    = 7;
+    static constexpr int     n_samples   = 64;
+    static constexpr int64_t max_gap_us  = 250000;
+
+    int32_t il      = -1;
+    int     cur     = 0;
+    int     trial   = 0;
+    int64_t last_us = -1;
+    int64_t sum_us  = 0;
+    int     n       = 0;
+    double  cost[3] = {};
+
+    int level(int t) const {
+        return t == 0 ? cur : (t == 1 ? cur + 1 : cur - 1);
+    }
+
+    bool valid(int t) const {
+        const int l = level(t);
+        return l >= 0 && l < n_levels;
+    }
+
+    uint32_t share_q() const {
+        return (uint32_t) (level(trial)*65536/10);
+    }
+
+    bool tick(int64_t now_us) {
+        if (last_us >= 0) {
+            const int64_t d = now_us - last_us;
+            if (d > 0 && d < max_gap_us) {
+                sum_us += d;
+                n++;
+            }
+        }
+        last_us = now_us;
+        if (n < n_samples) {
+            return false;
+        }
+        cost[trial] = (double) sum_us/n;
+        sum_us = 0;
+        n      = 0;
+        do {
+            trial++;
+        } while (trial < 3 && !valid(trial));
+        if (trial < 3) {
+            return false;
+        }
+        int best = 0;
+        for (int t = 1; t < 3; ++t) {
+            if (valid(t) && cost[t] < cost[best]) {
+                best = t;
+            }
+        }
+        const int prev = cur;
+        cur   = level(best);
+        trial = 0;
+        return cur != prev;
+    }
+};
+
 static bool llama_moe_cache_is_host_weight(const ggml_tensor * t) {
     return t->buffer != nullptr &&
         ggml_backend_buffer_get_usage(t->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
@@ -385,6 +445,8 @@ struct llama_moe_cache::impl {
 
     float    cpu_share = 0.0f;
     uint32_t cpu_share_q = 0; // cpu_share in 1/65536, integer so that a simulator can reproduce the rounding
+    bool     share_auto = false;
+    moe_cache_share_tuner tuner;
     int32_t  n_zero    = 0; // zero slots per group
 
     // LLAMA_MOE_CACHE_TRACE: the selected experts of each slot lookup, for a simulator of the cache
@@ -399,7 +461,7 @@ struct llama_moe_cache::impl {
     ggml_context_ptr ctx_views;
 
     impl(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, float cpu_share) :
-            n_expert_used(model.hparams.n_expert_used_max()), layers(model.layers.size()), cpu_share(std::clamp(cpu_share, 0.0f, 1.0f)) {
+            n_expert_used(model.hparams.n_expert_used_max()), layers(model.layers.size()), cpu_share(std::clamp(cpu_share, 0.0f, 1.0f)), share_auto(cpu_share < 0.0f) {
         for (size_t i = 0; i < backends.size(); ++i) {
             const auto dev_type = ggml_backend_dev_type(ggml_backend_get_device(backends[i]));
             if (dev_type == GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
@@ -449,7 +511,7 @@ struct llama_moe_cache::impl {
 
         // with misses on the CPU, the n_zero slots after the cached ones stay zero: the device computes these misses as zero
         // one extra slot at the end, CUDA MMQ can read past the last expert
-        n_zero = cpu_share > 0.0f ? std::min<int32_t>(n_expert_used, 64) : 0;
+        n_zero = cpu_share > 0.0f || share_auto ? std::min<int32_t>(n_expert_used, 64) : 0;
         auto alloc_size = [&](const group & g, int32_t n_slots) {
             const size_t alignment = ggml_backend_buft_get_alignment(devices[g.id].buft);
             size_t res = 0;
@@ -633,6 +695,9 @@ struct llama_moe_cache::impl {
                 }
             }
         }
+        if (share_auto) {
+            LLAMA_LOG_INFO("%s: the CPU share of the misses is tuned while generating, from 0%% to %d%%\n", __func__, (moe_cache_share_tuner::n_levels - 1)*10);
+        }
     }
 
     ggml_backend_t backend(int32_t il) const {
@@ -804,7 +869,17 @@ struct llama_moe_cache::impl {
         }
 
         // part of the misses is computed on the CPU once the cache is full, the carry keeps the share right on average
-        const uint32_t share_q = has_cpu && g.lru.n_filled == g.lru.n_slots ? cpu_share_q : 0;
+        const bool full = g.lru.n_filled == g.lru.n_slots;
+        if (share_auto && has_cpu && full && ids.size() == (size_t) n_used) {
+            if (tuner.il < 0) {
+                tuner.il = il;
+            }
+            if (il == tuner.il && tuner.tick(ggml_time_us())) {
+                LLAMA_LOG_DEBUG("%s: CPU share of the MoE cache misses = %d%%\n", __func__, tuner.cur*10);
+            }
+            cpu_share_q = tuner.share_q();
+        }
+        const uint32_t share_q = has_cpu && full ? cpu_share_q : 0;
         auto n_cpu = [&](size_t n_miss) {
             const uint64_t acc = (uint64_t) n_miss*share_q + l.cpu_acc;
             l.cpu_acc = acc & 0xffff;
