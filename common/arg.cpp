@@ -2792,6 +2792,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_SKIP"));
     add_opt(common_arg(
+        {"--moe-cache-stream"},
+        string_format("for large batches, upload the experts of the next expert tensor on a separate copy stream while the current one computes, uses two device staging buffers of the largest expert tensor (default: %s)", params.moe_cache_stream ? "enabled" : "disabled"),
+        [](common_params & params) {
+            params.moe_cache_stream = true;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_STREAM"));
+    add_opt(common_arg(
         {"-ncffn", "--n-cpu-ffn"}, "N",
         "keep the dense FFN weights of the first N layers in the CPU\n"
         "(dense models; for MoE expert weights use --n-cpu-moe)",

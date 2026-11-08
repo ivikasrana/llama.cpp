@@ -396,6 +396,7 @@ llama_context::llama_context(
     cparams.moe_cache_cpu_share = params.moe_cache_cpu_share;
     cparams.moe_cache_prefetch  = params.moe_cache_prefetch;
     cparams.moe_cache_skip      = params.moe_cache_skip;
+    cparams.moe_cache_stream    = params.moe_cache_stream;
 
     // resolved after flash attention, see resolve_fused_ops()
     {
@@ -616,7 +617,7 @@ llama_context::llama_context(
         }
 
         if (cparams.moe_cache_size > 0) {
-            moe_cache = std::make_unique<llama_moe_cache>(model, model.no_alloc(), backend_ptrs, backend_buft, cparams.moe_cache_size, cparams.moe_cache_cpu_share, cparams.moe_cache_prefetch, cparams.moe_cache_skip);
+            moe_cache = std::make_unique<llama_moe_cache>(model, model.no_alloc(), backend_ptrs, backend_buft, cparams.moe_cache_size, cparams.moe_cache_cpu_share, cparams.moe_cache_prefetch, cparams.moe_cache_skip, cparams.moe_cache_stream);
         }
 
         sched_reserve();
@@ -3011,6 +3012,10 @@ bool llama_context::sched_copy_experts(ggml_backend_t backend, const ggml_tensor
         return true;
     }
 
+    if (lctx->moe_cache && lctx->moe_cache->stream(backend, src, dst, ids->ne[1])) {
+        return true;
+    }
+
     const int64_t n_expert    = src->ne[2];
     const size_t  expert_size = src->nb[2];
 
@@ -4280,6 +4285,7 @@ llama_context_params llama_context_default_params() {
         /*.moe_cache_cpu_share         =*/ 0.0f,
         false,
         0,
+        false,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
         /*.embeddings                  =*/ false,

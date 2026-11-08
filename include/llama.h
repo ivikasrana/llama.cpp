@@ -401,6 +401,7 @@ extern "C" {
         float  moe_cache_cpu_share; // share of the MoE cache misses computed on the CPU instead of uploaded, 0 = all uploaded [EXPERIMENTAL]
         bool   moe_cache_prefetch;
         int32_t moe_cache_skip;
+        bool   moe_cache_stream;
 
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted

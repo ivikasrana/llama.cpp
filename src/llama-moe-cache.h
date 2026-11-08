@@ -14,7 +14,7 @@ class llama_moe_cache {
 public:
     // backends are all the backends of the context, each GPU gets its own cache of the given size for the layers assigned to it
     // cpu_share is the share of the misses computed on the CPU instead of uploaded
-    llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, float cpu_share, bool prefetch, int32_t skip);
+    llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, float cpu_share, bool prefetch, int32_t skip, bool stream);
     ~llama_moe_cache();
 
     // the device that caches layer il
@@ -39,6 +39,8 @@ public:
     // for large batches: copy the experts of w that are in the cache, starting at expert e and up to expert last, to the copy dst of w
     // returns the number of experts copied, 0 if expert e is not in the cache
     int64_t copy_experts(ggml_backend_t backend, const ggml_tensor * w, ggml_tensor * dst, int64_t e, int64_t last);
+
+    bool stream(ggml_backend_t backend, const ggml_tensor * w, ggml_tensor * dst, int64_t n_tokens);
 
     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
 
