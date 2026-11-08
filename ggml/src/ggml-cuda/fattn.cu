@@ -511,6 +511,28 @@ static fattn_vec_case_t ggml_cuda_get_fattn_vec_case(const int64_t head_size, co
     FATTN_VEC_CASES_ALL_D(Q8_0, BF16)
     FATTN_VEC_CASES_ALL_D(BF16, BF16)
 
+    FATTN_VEC_CASES_ALL_D(TURBO3_0, TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(TURBO3_0, Q8_0)
+    FATTN_VEC_CASES_ALL_D(Q8_0, TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(F16, TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(TURBO3_0, F16)
+    FATTN_VEC_CASES_ALL_D(TURBO2_0, TURBO2_0)
+    FATTN_VEC_CASES_ALL_D(TURBO2_0, Q8_0)
+    FATTN_VEC_CASES_ALL_D(Q8_0, TURBO2_0)
+    FATTN_VEC_CASES_ALL_D(F16, TURBO2_0)
+    FATTN_VEC_CASES_ALL_D(TURBO2_0, F16)
+    FATTN_VEC_CASES_ALL_D(TURBO3_0, TURBO2_0)
+    FATTN_VEC_CASES_ALL_D(TURBO2_0, TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(TURBO4_0, TURBO4_0)
+    FATTN_VEC_CASES_ALL_D(TURBO4_0, Q8_0)
+    FATTN_VEC_CASES_ALL_D(Q8_0, TURBO4_0)
+    FATTN_VEC_CASES_ALL_D(F16, TURBO4_0)
+    FATTN_VEC_CASES_ALL_D(TURBO4_0, F16)
+    FATTN_VEC_CASES_ALL_D(TURBO4_0, TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(TURBO3_0, TURBO4_0)
+    FATTN_VEC_CASES_ALL_D(TURBO4_0, TURBO2_0)
+    FATTN_VEC_CASES_ALL_D(TURBO2_0, TURBO4_0)
+
     return nullptr;
 }
 
@@ -553,6 +575,11 @@ static bool ggml_cuda_fattn_kv_type_supported(const ggml_type type) {
         case GGML_TYPE_Q5_0:
         case GGML_TYPE_Q5_1:
         case GGML_TYPE_Q8_0:
+        case GGML_TYPE_TURBO2_0:
+        case GGML_TYPE_TURBO3_0:
+        case GGML_TYPE_TURBO4_0:
+        case GGML_TYPE_TURBO5_0:
+        case GGML_TYPE_TURBO6_0:
             return true;
         default:
             return false;
@@ -649,6 +676,22 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
 
     if (!ggml_cuda_fattn_kv_type_supported(K->type) || !ggml_cuda_fattn_kv_type_supported(V->type)) {
         return BEST_FATTN_KERNEL_NONE;
+    }
+
+    {
+        auto is_turbo234 = [](ggml_type t) {
+            return t == GGML_TYPE_TURBO2_0 || t == GGML_TYPE_TURBO3_0 || t == GGML_TYPE_TURBO4_0;
+        };
+        auto is_turbo56 = [](ggml_type t) {
+            return t == GGML_TYPE_TURBO5_0 || t == GGML_TYPE_TURBO6_0;
+        };
+        if ((is_turbo234(K->type) && K->ne[0] % 64 != 0) || (is_turbo234(V->type) && V->ne[0] % 64 != 0)) {
+            return BEST_FATTN_KERNEL_NONE;
+        }
+        if ((is_turbo56(K->type) && K->ne[0] != 128 && K->ne[0] != 256) ||
+            (is_turbo56(V->type) && V->ne[0] != 128 && V->ne[0] != 256)) {
+            return BEST_FATTN_KERNEL_NONE;
+        }
     }
 
     if (mask && mask->ne[2] != 1) {

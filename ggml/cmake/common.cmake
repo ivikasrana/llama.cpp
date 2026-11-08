@@ -113,10 +113,22 @@ function(ggml_cuda_fattn_vec_instances DIR OUT_SRCS)
         endforeach()
     endforeach()
 
-    message(STATUS "FlashAttention K-V type combinations: ${FA_COMBINATIONS}")
+    set(FA_TURBO_COMBINATIONS
+        turbo3_0-turbo3_0 turbo3_0-q8_0 q8_0-turbo3_0 f16-turbo3_0 turbo3_0-f16
+        turbo2_0-turbo2_0 turbo2_0-q8_0 q8_0-turbo2_0 f16-turbo2_0 turbo2_0-f16
+        turbo3_0-turbo2_0 turbo2_0-turbo3_0
+        turbo4_0-turbo4_0 turbo4_0-q8_0 q8_0-turbo4_0 f16-turbo4_0 turbo4_0-f16
+        turbo4_0-turbo3_0 turbo3_0-turbo4_0 turbo4_0-turbo2_0 turbo2_0-turbo4_0)
+    foreach (COMBINATION IN LISTS FA_TURBO_COMBINATIONS)
+        string(REPLACE "-" "_" COMBINATION_DEF "${COMBINATION}")
+        string(TOUPPER "GGML_CUDA_FA_${COMBINATION_DEF}" COMBINATION_DEF)
+        add_compile_definitions(${COMBINATION_DEF}=1)
+    endforeach()
+
+    message(STATUS "FlashAttention K-V type combinations: ${FA_COMBINATIONS};${FA_TURBO_COMBINATIONS}")
 
     set(SRCS "")
-    foreach (COMBINATION IN LISTS FA_COMBINATIONS)
+    foreach (COMBINATION IN LISTS FA_COMBINATIONS FA_TURBO_COMBINATIONS)
         set(SRC "${DIR}/template-instances/fattn-vec-instance-${COMBINATION}.cu")
         if (NOT EXISTS "${SRC}")
             message(FATAL_ERROR "FlashAttention template instance \"${SRC}\" does not exist")
