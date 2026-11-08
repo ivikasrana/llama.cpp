@@ -1248,6 +1248,12 @@ struct llm_graph_context {
              ggml_tensor * down_exps,
              ggml_tensor * gate_up_exps,
                     bool   cpu_part,
+                     int   il,
+             ggml_tensor * next_experts = nullptr) const;
+
+    ggml_tensor * build_moe_cache_next(
+             ggml_tensor * cur,
+                 int64_t   n_expert_used,
                      int   il) const;
 
     //

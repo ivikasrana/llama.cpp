@@ -2418,7 +2418,8 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     const std::array<ggml_tensor *, 4> exps = { up_exps, gate_exps, down_exps, gate_up_exps };
     const bool can_cpu_share = !weight_before_ffn && loras->empty() &&
         std::none_of(exps.begin(), exps.end(), [&](ggml_tensor * w) { return w != nullptr && hdmd != nullptr && hdmd->rot.count(w) > 0; });
-    const llm_graph_moe_cache_slots cache = build_moe_cache_slots(selected_experts, up_exps, gate_exps, down_exps, gate_up_exps, can_cpu_share, il);
+    ggml_tensor * next_experts = build_moe_cache_next(cur, n_expert_used, il);
+    const llm_graph_moe_cache_slots cache = build_moe_cache_slots(selected_experts, up_exps, gate_exps, down_exps, gate_up_exps, can_cpu_share, il, next_experts);
 
     cur = ggml_reshape_3d(ctx0, cur, n_embd, 1, n_tokens);
 
@@ -2664,7 +2665,8 @@ llm_graph_moe_cache_slots llm_graph_context::build_moe_cache_slots(
          ggml_tensor * down_exps,
          ggml_tensor * gate_up_exps,
                 bool   cpu_part,
-                 int   il) const {
+                 int   il,
+         ggml_tensor * next_experts) const {
     if (moe_cache == nullptr) {
         return { nullptr, nullptr };
     }
@@ -2684,11 +2686,16 @@ llm_graph_moe_cache_slots llm_graph_context::build_moe_cache_slots(
     if (!ggml_is_contiguous(ids)) {
         ids = ggml_cont(ctx0, ids);
     }
-    ids = ggml_reshape_1d(ctx0, ids, ggml_nelements(ids));
+    ggml_tensor * ids_lookup = ids;
+    if (next_experts != nullptr && next_experts->ne[0] == ids->ne[0] && next_experts->ne[1] == ids->ne[1]) {
+        ids_lookup = ggml_concat(ctx0, ids, ggml_cont(ctx0, next_experts), 1);
+    }
+    ids        = ggml_reshape_1d(ctx0, ids, ggml_nelements(ids));
+    ids_lookup = ggml_reshape_1d(ctx0, ids_lookup, ggml_nelements(ids_lookup));
 
     // the slot map is a host weight, so the scheduler starts a new split here and copies it with the copy callback
     // the callback reads the selected experts, uploads the missing ones and updates the slot map
-    ggml_tensor * slots = ggml_get_rows(ctx0, slot_map, ids); // [1, n_expert_used*n_tokens]
+    ggml_tensor * slots = ggml_get_rows(ctx0, slot_map, ids_lookup); // [1, n_expert_used*n_tokens]
     if (!ggml_backend_supports_op(moe_cache->backend(il), slots)) {
         return { nullptr, nullptr };
     }
@@ -2705,7 +2712,34 @@ llm_graph_moe_cache_slots llm_graph_context::build_moe_cache_slots(
         cpu_ids = ggml_reshape_2d(ctx0, cpu_ids, selected_experts->ne[0], selected_experts->ne[1]);
     }
 
-    return { ggml_reshape_2d(ctx0, slots, selected_experts->ne[0], selected_experts->ne[1]), cpu_ids };
+    ggml_tensor * slots_sel = ids_lookup == ids ? slots : ggml_view_2d(ctx0, slots, 1, ggml_nelements(ids), slots->nb[1], 0);
+
+    return { ggml_reshape_2d(ctx0, slots_sel, selected_experts->ne[0], selected_experts->ne[1]), cpu_ids };
+}
+
+ggml_tensor * llm_graph_context::build_moe_cache_next(
+         ggml_tensor * cur,
+             int64_t   n_expert_used,
+                 int   il) const {
+    if (moe_cache == nullptr || model.arch == LLM_ARCH_GROVEMOE || hparams.n_expert_groups > 1) {
+        return nullptr;
+    }
+    if (il + 1 >= (int) model.layers.size() || !moe_cache->can_prefetch(il + 1, cur->ne[1])) {
+        return nullptr;
+    }
+    const llama_layer & next = model.layers[il + 1];
+    if (next.ffn_gate_inp == nullptr || next.ffn_exp_probs_b != nullptr || next.ffn_gate_inp->ne[0] != cur->ne[0] ||
+            next.ffn_gate_inp->ne[1] < n_expert_used) {
+        return nullptr;
+    }
+
+    ggml_tensor * logits = ggml_mul_mat(ctx0, next.ffn_gate_inp, cur);
+    if (next.ffn_gate_inp_b != nullptr) {
+        logits = ggml_add(ctx0, logits, next.ffn_gate_inp_b);
+    }
+    ggml_tensor * res = ggml_argsort_top_k(ctx0, logits, n_expert_used);
+    cb(res, "ffn_moe_next", il);
+    return res;
 }
 
 // input embeddings with optional lora
