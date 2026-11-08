@@ -131,7 +131,7 @@ static __device__ __forceinline__ void turbo_rotate_forward_64(float * x) {
 
 
 static __device__ float d_innerq_scale[INNERQ_MAX_CHANNELS];
-static __device__ float d_innerq_scale_inv[INNERQ_MAX_CHANNELS];
+static __device__ __align__(16) float d_innerq_scale_inv[INNERQ_MAX_CHANNELS];
 static __device__ float d_innerq_sq_accum[INNERQ_MAX_CHANNELS];
 static __device__ int   d_innerq_count;
 static __device__ int   d_innerq_active;
@@ -164,6 +164,11 @@ static void turbo_innerq_init(void) {
     CUDA_CHECK(cudaMemcpyToSymbol(d_innerq_count, &zero, sizeof(int)));
     CUDA_CHECK(cudaMemcpyToSymbol(d_innerq_active, &zero, sizeof(int)));
     CUDA_CHECK(cudaMemcpyToSymbol(d_innerq_calibrating, &one, sizeof(int)));
+    float ones[INNERQ_MAX_CHANNELS];
+    for (int i = 0; i < INNERQ_MAX_CHANNELS; i++) {
+        ones[i] = 1.0f;
+    }
+    CUDA_CHECK(cudaMemcpyToSymbol(d_innerq_scale_inv, ones, sizeof(ones)));
 
     GGML_LOG_INFO("%s: InnerQ calibration started (target=%d tokens, strength=%.2f)\n",
                    __func__, innerq_target_tokens, innerq_strength);

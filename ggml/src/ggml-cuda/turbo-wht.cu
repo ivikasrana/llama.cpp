@@ -213,7 +213,7 @@ void ggml_cuda_turbo_wht(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
 
     const float * src_ptr = (const float *) src->data;
     float       * dst_ptr = (float       *) dst->data;
-    const float * scale_inv_ptr = scale_tensor ? (const float *) scale_tensor->data : nullptr;
+    const float * scale_inv_ptr = scale_tensor ? (const float *) scale_tensor->data : ggml_cuda_turbo_innerq_scale_inv();
 
     cudaStream_t stream = ctx.stream();
 

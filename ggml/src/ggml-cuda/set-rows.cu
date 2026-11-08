@@ -1672,3 +1672,13 @@ void ggml_cuda_op_set_rows(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
         GGML_ABORT("unsupported type %s", ggml_type_name(src0->type));
     }
 }
+
+const float * ggml_cuda_turbo_innerq_scale_inv(void) {
+    turbo_innerq_init();
+    if (innerq_target_tokens <= 0) {
+        return nullptr;
+    }
+    void * ptr = nullptr;
+    CUDA_CHECK(cudaGetSymbolAddress(&ptr, d_innerq_scale_inv));
+    return (const float *) ptr;
+}
