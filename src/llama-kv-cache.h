@@ -8,6 +8,15 @@
 #include <unordered_map>
 #include <vector>
 
+inline bool llama_kv_type_is_turbo(ggml_type type) {
+    return type == GGML_TYPE_TURBO2_0 || type == GGML_TYPE_TURBO3_0 || type == GGML_TYPE_TURBO4_0 ||
+           type == GGML_TYPE_TURBO5_0 || type == GGML_TYPE_TURBO6_0;
+}
+
+inline int64_t llama_kv_turbo_head_dim(ggml_type type, int64_t n_embd_head) {
+    return llama_kv_type_is_turbo(type) && n_embd_head % 128 != 0 ? ((n_embd_head + 127)/128)*128 : n_embd_head;
+}
+
 struct llama_cparams;
 struct llama_hparams;
 struct llama_model;

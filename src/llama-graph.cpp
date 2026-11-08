@@ -3044,6 +3044,23 @@ ggml_tensor * llm_graph_context::build_attn_mha(
                  int   il) const {
     const bool v_trans = v->nb[1] > v->nb[2];
 
+    const bool k_is_turbo = llama_kv_type_is_turbo(k->type);
+    const bool v_is_turbo = llama_kv_type_is_turbo(v->type);
+
+    GGML_ASSERT((!k_is_turbo && !v_is_turbo) || (cparams.flash_attn && kq_b == nullptr && !v_trans));
+
+    if (k_is_turbo) {
+        GGML_ASSERT(k->ne[0] % 128 == 0 && q->ne[0] <= k->ne[0]);
+        if (q->ne[0] < k->ne[0]) {
+            q = ggml_pad(ctx0, q, k->ne[0] - q->ne[0], 0, 0, 0);
+        }
+        if (!ggml_is_contiguous(q)) {
+            q = ggml_cont(ctx0, q);
+        }
+        q = ggml_turbo_wht(ctx0, q, 0, 128, nullptr);
+        cb(q, "q_turbo_wht", il);
+    }
+
     // split the batch into streams if needed
     const auto n_stream = kv_rows ? kv_rows->ne[1] : k->ne[3];
 
@@ -3089,6 +3106,19 @@ ggml_tensor * llm_graph_context::build_attn_mha(
         GGML_ASSERT(n_kv_max >= 0 && n_kv_max <= INT32_MAX);
         ggml_flash_attn_ext_set_n_kv_max(cur, static_cast<int32_t>(n_kv_max));
         ggml_prec_set_acc(cur, GGML_PREC_F32);
+
+        if (v_is_turbo) {
+            GGML_ASSERT(cur->ne[0] % 128 == 0);
+            cur = ggml_turbo_wht(ctx0, cur, 1, 128, nullptr);
+            cb(cur, "kqv_turbo_wht", il);
+
+            const int64_t n_embd_head_v = hparams.n_embd_head_v(il);
+            if (!v_mla && cur->ne[0] > n_embd_head_v) {
+                cur = ggml_view_4d(ctx0, cur, n_embd_head_v, cur->ne[1], cur->ne[2], cur->ne[3],
+                        cur->nb[1], cur->nb[2], cur->nb[3], 0);
+                cur = ggml_cont(ctx0, cur);
+            }
+        }
 
         if (v_mla) {
 #if 0
