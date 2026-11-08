@@ -118,7 +118,8 @@ function(ggml_cuda_fattn_vec_instances DIR OUT_SRCS)
         turbo2_0-turbo2_0 turbo2_0-q8_0 q8_0-turbo2_0 f16-turbo2_0 turbo2_0-f16
         turbo3_0-turbo2_0 turbo2_0-turbo3_0
         turbo4_0-turbo4_0 turbo4_0-q8_0 q8_0-turbo4_0 f16-turbo4_0 turbo4_0-f16
-        turbo4_0-turbo3_0 turbo3_0-turbo4_0 turbo4_0-turbo2_0 turbo2_0-turbo4_0)
+        turbo4_0-turbo3_0 turbo3_0-turbo4_0 turbo4_0-turbo2_0 turbo2_0-turbo4_0
+        f16-turbo5_0 f16-turbo6_0 q8_0-turbo5_0 q8_0-turbo6_0 turbo2_0-turbo5_0 turbo2_0-turbo6_0 turbo3_0-turbo5_0 turbo3_0-turbo6_0 turbo4_0-turbo5_0 turbo4_0-turbo6_0 turbo5_0-f16 turbo5_0-q8_0 turbo5_0-turbo2_0 turbo5_0-turbo3_0 turbo5_0-turbo4_0 turbo5_0-turbo5_0 turbo5_0-turbo6_0 turbo6_0-f16 turbo6_0-q8_0 turbo6_0-turbo2_0 turbo6_0-turbo3_0 turbo6_0-turbo4_0 turbo6_0-turbo5_0 turbo6_0-turbo6_0)
     foreach (COMBINATION IN LISTS FA_TURBO_COMBINATIONS)
         string(REPLACE "-" "_" COMBINATION_DEF "${COMBINATION}")
         string(TOUPPER "GGML_CUDA_FA_${COMBINATION_DEF}" COMBINATION_DEF)
